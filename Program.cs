@@ -83,7 +83,7 @@ namespace managedIdentityClientTest
 
         public static void Run(Config config)
         {
-            // AccessTokenAcquirer.config = config;
+            AccessTokenAcquirer.config = config;
             //# '2020-05-01' # 2448 has 2024-06-11
             Console.WriteLine($"Acquiring access token using Managed Identity");
 
@@ -107,9 +107,13 @@ namespace managedIdentityClientTest
             var managedIdentityApiVersion = config.apiversion;
             var managedIdentityAuthenticationHeader = "secret";
             var resource = config.resourceId; //"https://management.azure.com/";
-
+            var clientId = config.clientId;
             var requestUri = $"{managedIdentityEndpoint}?api-version={managedIdentityApiVersion}&resource={HttpUtility.UrlEncode(resource)}";
 
+            if(!string.IsNullOrEmpty(clientId))
+            {
+                requestUri += $"&client_id={clientId}";
+            }
             Console.WriteLine($"Requesting token from {requestUri}");
             var requestMessage = new HttpRequestMessage(HttpMethod.Get, requestUri);
             requestMessage.Headers.Add(managedIdentityAuthenticationHeader, managedIdentityAuthenticationCode);
@@ -134,7 +138,7 @@ namespace managedIdentityClientTest
                 response.EnsureSuccessStatusCode();
                 var tokenResponseString = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                 var tokenResponseObject = JsonConvert.DeserializeObject<ManagedIdentityTokenResponse>(tokenResponseString);
-
+                Log(LogLevel.Info,tokenResponseString);
                 return tokenResponseObject.AccessToken;
             }
             catch (Exception ex)
@@ -165,8 +169,13 @@ namespace managedIdentityClientTest
             Log(LogLevel.Info, "\n== {DateTime.UtcNow.ToString()}: Probing secret...");
             try
             {
-                var secretResponse = await kvClient.GetSecretWithHttpMessagesAsync(vault, secret, version)
-                    .ConfigureAwait(false);
+                var customHeaders = new Dictionary<string, List<string>> 
+                { 
+                    { 
+                        "Authorization", new List<string> { $"Bearer {token}" } 
+                    } 
+                };
+                var secretResponse = await kvClient.GetSecretWithHttpMessagesAsync(vault, secret, version, customHeaders).ConfigureAwait(false);
 
                 if (secretResponse.Response.IsSuccessStatusCode)
                 {
