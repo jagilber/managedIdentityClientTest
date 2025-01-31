@@ -4,7 +4,10 @@ using System.Web;
 using Newtonsoft.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Azure.KeyVault.Models;
-using System.Text.RegularExpressions;
+using System.Security.Cryptography;
+using System.Security.Permissions;
+using System.IO;
+using System.Security.Cryptography.X509Certificates;
 
 namespace managedIdentityClientTest
 {
@@ -37,7 +40,7 @@ namespace managedIdentityClientTest
         private static Config config = new Config();
         private static HttpClient httpClient = new HttpClient();
 
-        public static void Main(string[] args)
+        public static async Task Main(string[] args)
         {
             if (args.Length == 0)
             {
@@ -47,7 +50,7 @@ namespace managedIdentityClientTest
                     string json = System.IO.File.ReadAllText("config.json");
                     config = JsonConvert.DeserializeObject<Config>(json);
                 }
-                Run(config);
+                await Run(config);
                 return;
             }
             if (args.Length == 1)
@@ -59,7 +62,7 @@ namespace managedIdentityClientTest
                     {
                         string json = System.IO.File.ReadAllText(args[0]);
                         config = JsonConvert.DeserializeObject<Config>(json);
-                        Run(config);
+                        await Run(config);
                         return;
                     }
                     catch (Exception ex)
@@ -67,30 +70,18 @@ namespace managedIdentityClientTest
                         Console.WriteLine($"Failed to parse json file: {ex.Message}");
                     }
                 }
-                // see if it is json string that can be deserialized into Config
-                try
-                {
-                    config = JsonConvert.DeserializeObject<Config>(args[0]);
-                    Run(config);
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Failed to parse json string: {ex.Message}");
-                }
             }
         }
 
-        public static void Run(Config config)
+        public static async Task Run(Config config)
         {
             AccessTokenAcquirer.config = config;
             //# '2020-05-01' # 2448 has 2024-06-11
             Console.WriteLine($"Acquiring access token using Managed Identity");
 
-            var token = AcquireAccessTokenAsync(config).Result;
-            config.token = token;
-            var result = ProbeSecretAsync(config).Result;
-            Console.WriteLine($"token: {token}");
+            config.token = await AcquireAccessTokenAsync(config);
+            var result = await ProbeSecretAsync(config);
+            Console.WriteLine($"token: {config.token}");
             Console.WriteLine($"result: {result}");
         }
 
@@ -110,7 +101,7 @@ namespace managedIdentityClientTest
             var clientId = config.clientId;
             var requestUri = $"{managedIdentityEndpoint}?api-version={managedIdentityApiVersion}&resource={HttpUtility.UrlEncode(resource)}";
 
-            if(!string.IsNullOrEmpty(clientId))
+            if (!string.IsNullOrEmpty(clientId))
             {
                 requestUri += $"&client_id={clientId}";
             }
@@ -130,15 +121,19 @@ namespace managedIdentityClientTest
                 return compare;
             };
 
+            // https://stackoverflow.com/questions/38138952/bypass-invalid-ssl-certificate-in-net-core
+            // handler.ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
+
+
             try
             {
                 var response = await new HttpClient(handler).SendAsync(requestMessage)
                     .ConfigureAwait(false);
 
-                response.EnsureSuccessStatusCode();
+                // response.EnsureSuccessStatusCode();
                 var tokenResponseString = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                 var tokenResponseObject = JsonConvert.DeserializeObject<ManagedIdentityTokenResponse>(tokenResponseString);
-                Log(LogLevel.Info,tokenResponseString);
+                Log(LogLevel.Info, tokenResponseString);
                 return tokenResponseObject.AccessToken;
             }
             catch (Exception ex)
@@ -153,7 +148,6 @@ namespace managedIdentityClientTest
         public static async Task<string> ProbeSecretAsync(Config config)
         {
             // initialize a KeyVault client with a managed identity-based authentication callback
-            var kvClient = new Microsoft.Azure.KeyVault.KeyVaultClient(new Microsoft.Azure.KeyVault.KeyVaultClient.AuthenticationCallback((a, r, s) => { return AuthenticationCallbackAsync(a, r, s); }));
             // convert the secretUrl from Uri to vault and secret name
             var secretUrl = new Uri(config.secretUrl);
             var secret = secretUrl.Segments[2].TrimEnd('/');
@@ -162,6 +156,7 @@ namespace managedIdentityClientTest
             var endpoint = config.endpoint;
             var token = config.token;
             var header = config.header;
+            var kvClient = new Microsoft.Azure.KeyVault.KeyVaultClient(new Microsoft.Azure.KeyVault.KeyVaultClient.AuthenticationCallback((a, r, s) => { return AuthenticationCallbackAsync(a, r, s); }));
 
             Log(LogLevel.Info, $"\nRunning with configuration: \n\tobserved vault: {vault}\n\tobserved secret: {secret}\n\tMI endpoint: {endpoint}\n\tMI auth code: {token}\n\tMI auth header: {header}");
             string response = String.Empty;
@@ -169,13 +164,7 @@ namespace managedIdentityClientTest
             Log(LogLevel.Info, "\n== {DateTime.UtcNow.ToString()}: Probing secret...");
             try
             {
-                var customHeaders = new Dictionary<string, List<string>> 
-                { 
-                    { 
-                        "Authorization", new List<string> { $"Bearer {token}" } 
-                    } 
-                };
-                var secretResponse = await kvClient.GetSecretWithHttpMessagesAsync(vault, secret, version, customHeaders).ConfigureAwait(false);
+                var secretResponse = await kvClient.GetSecretWithHttpMessagesAsync(vault, secret, version).ConfigureAwait(false);
 
                 if (secretResponse.Response.IsSuccessStatusCode)
                 {
@@ -242,31 +231,103 @@ namespace managedIdentityClientTest
             //
             // where the response cache is left as an exercise for the reader. MemoryCache is a good option, albeit not yet available on .net core.
 
+
+
             var requestUri = $"{config.endpoint}?api-version={config.apiversion}&resource={encodedResource}";
             Log(LogLevel.Verbose, $"request uri: {requestUri}");
 
             var requestMessage = new HttpRequestMessage(HttpMethod.Get, requestUri);
-            requestMessage.Headers.Add(config.header, config.token);
-            Log(LogLevel.Verbose, $"added header '{config.header}': '{config.token}'");
+            requestMessage.Headers.Add("secret", $"{config.header}");
+            Log(LogLevel.Verbose, $"added header 'secret':'{config.header}'");
 
-            var response = await httpClient.SendAsync(requestMessage)
-                .ConfigureAwait(false);
-            Log(LogLevel.Verbose, $"response status: success: {response.IsSuccessStatusCode}, status: {response.StatusCode}");
+            try
+            {
 
-            response.EnsureSuccessStatusCode();
+                // var cert = GetCert(config.thumbprint);
+                var customHandler = new HttpClientHandler();
+                // customHandler.ClientCertificates.Add(cert);
+                customHandler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, certChain, policyErrors) =>
+                {
+                    // Do any additional validation here
+                    if (policyErrors == SslPolicyErrors.None)
+                    {
+                        return true;
+                    }
+                    bool compare = 0 == string.Compare(cert.GetCertHashString(), config.thumbprint, StringComparison.OrdinalIgnoreCase);
+                    return compare;
+                };
+                var client = new HttpClient(customHandler);
+                var response = await client.SendAsync(requestMessage).ConfigureAwait(false);
+                Log(LogLevel.Verbose, $"response status: success: {response.IsSuccessStatusCode}, status: {response.StatusCode}");
 
-            var tokenResponseString = await response.Content.ReadAsStringAsync()
-                .ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
 
-            var tokenResponse = JsonConvert.DeserializeObject<ManagedIdentityTokenResponse>(tokenResponseString);
-            Log(LogLevel.Verbose, "deserialized token response; returning access code..");
+                var tokenResponseString = await response.Content.ReadAsStringAsync()
+                    .ConfigureAwait(false);
 
-            // Sample caching code (continuation):
-            // var expiration = DateTimeOffset.FromUnixTimeSeconds(Int32.Parse(tokenResponse.ExpiresOn));
-            // if (expiration > DateTimeOffset.UtcNow.AddSeconds(5.0))
-            //    responseCache.AddOrUpdate(encodedResource, tokenResponse, expiration);
+                var tokenResponse = JsonConvert.DeserializeObject<ManagedIdentityTokenResponse>(tokenResponseString);
+                Log(LogLevel.Verbose, "deserialized token response; returning access code..");
 
-            return tokenResponse.AccessToken;
+                // Sample caching code (continuation):
+                // var expiration = DateTimeOffset.FromUnixTimeSeconds(Int32.Parse(tokenResponse.ExpiresOn));
+                // if (expiration > DateTimeOffset.UtcNow.AddSeconds(5.0))
+                //    responseCache.AddOrUpdate(encodedResource, tokenResponse, expiration);
+
+                return tokenResponse.AccessToken;
+            }
+            catch (HttpRequestException hre)
+            {
+                Log(LogLevel.Info, $"HTTP request exception in authentication callback: {hre.Message}");
+                Log(LogLevel.Info, $"exception details: {hre.ToString()}");
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Log(LogLevel.Info, $"exception in authentication callback: {ex.Message}");
+                Log(LogLevel.Info, $"exception details: {ex.ToString()}");
+                throw;
+            }
+        }
+
+        public static X509Certificate2 GetCert(string thumbprint)
+        {
+            X509Store store = new X509Store("MY", StoreLocation.LocalMachine);
+            store.Open(OpenFlags.ReadOnly | OpenFlags.OpenExistingOnly);
+
+            X509Certificate2Collection collection = (X509Certificate2Collection)store.Certificates;
+            X509Certificate2Collection fcollection = (X509Certificate2Collection)collection.Find(X509FindType.FindByTimeValid, DateTime.Now, false);
+
+            foreach (X509Certificate2 x509 in collection)
+            {
+                try
+                {
+
+                    byte[] rawdata = x509.RawData;
+                    Console.WriteLine("Content Type: {0}{1}", X509Certificate2.GetCertContentType(rawdata), Environment.NewLine);
+                    Console.WriteLine("Friendly Name: {0}{1}", x509.FriendlyName, Environment.NewLine);
+                    Console.WriteLine("Certificate Verified?: {0}{1}", x509.Verify(), Environment.NewLine);
+                    Console.WriteLine("Simple Name: {0}{1}", x509.GetNameInfo(X509NameType.SimpleName, true), Environment.NewLine);
+                    Console.WriteLine("Signature Algorithm: {0}{1}", x509.SignatureAlgorithm.FriendlyName, Environment.NewLine);
+                    Console.WriteLine("Public Key: {0}{1}", x509.PublicKey.Key.ToXmlString(false), Environment.NewLine);
+                    Console.WriteLine("Certificate Archived?: {0}{1}", x509.Archived, Environment.NewLine);
+                    Console.WriteLine("Length of Raw Data: {0}{1}", x509.RawData.Length, Environment.NewLine);
+                    if (string.Compare(x509.Thumbprint, thumbprint, true) == 0)
+                    {
+                        store.Close();
+                        return x509;
+                    }
+
+                    //    X509Certificate2UI.DisplayCertificate(x509);
+                    x509.Reset();
+                }
+                catch (CryptographicException)
+                {
+                    Console.WriteLine("Information could not be written out for this certificate.");
+                    return null;
+                }
+            }
+            store.Close();
+            return null;
         }
 
         private static string PrintSecretBundleMetadata(SecretBundle bundle)
