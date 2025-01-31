@@ -39,7 +39,7 @@ namespace managedIdentityClientTest
 
         public static void Main(string[] args)
         {
-            if(args.Length == 0)
+            if (args.Length == 0)
             {
                 // see if config.json exists in the current directory
                 if (System.IO.File.Exists("config.json"))
@@ -90,7 +90,8 @@ namespace managedIdentityClientTest
             var token = AcquireAccessTokenAsync(config).Result;
             config.token = token;
             var result = ProbeSecretAsync(config).Result;
-            Console.WriteLine(token);
+            Console.WriteLine($"token: {token}");
+            Console.WriteLine($"result: {result}");
         }
 
         /// <summary>
@@ -157,7 +158,7 @@ namespace managedIdentityClientTest
             var endpoint = config.endpoint;
             var token = config.token;
             var header = config.header;
-            
+
             Log(LogLevel.Info, $"\nRunning with configuration: \n\tobserved vault: {vault}\n\tobserved secret: {secret}\n\tMI endpoint: {endpoint}\n\tMI auth code: {token}\n\tMI auth header: {header}");
             string response = String.Empty;
 
@@ -180,15 +181,19 @@ namespace managedIdentityClientTest
             catch (Microsoft.Rest.ValidationException ve)
             {
                 response = String.Format($"encountered REST validation exception 0x{ve.HResult.ToString("X")} trying to access '{secret}' in vault '{vault}' from {ve.Source}: {ve.Message}");
+                Log(LogLevel.Info, ve.ToString());
             }
             catch (KeyVaultErrorException kvee)
             {
                 response = String.Format($"encountered KeyVault exception 0x{kvee.HResult.ToString("X")} trying to access '{secret}' in vault '{vault}': {kvee.Response.ReasonPhrase} ({kvee.Response.StatusCode})");
+                Log(LogLevel.Info, kvee.ToString());
             }
             catch (Exception ex)
             {
                 // handle generic errors here
                 response = String.Format($"encountered exception 0x{ex.HResult.ToString("X")} trying to access '{secret}' in vault '{vault}': {ex.Message}");
+                // convert exception to string using ToString() for logging including stack trace and inner exceptions
+                Log(LogLevel.Info, ex.ToString());
             }
 
             Log(LogLevel.Info, response);
@@ -281,10 +286,10 @@ namespace managedIdentityClientTest
 
         private static void Log(LogLevel level, string message)
         {
-            if (level != LogLevel.Verbose)
-            {
-                Console.WriteLine(message);
-            }
+            //   if (level != LogLevel.Verbose)
+            //   {
+            Console.WriteLine(message);
+            //   }
         }
     } // class AccessTokenAcquirer
 
