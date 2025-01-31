@@ -1,0 +1,7 @@
+# ...existing code...
+bin/
+obj/
+*.user
+*.suo
+*.csproj.user
+.vs/
