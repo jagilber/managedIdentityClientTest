@@ -18,4 +18,14 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
+  <Target Name="CopyConfig" AfterTargets="AfterBuild">
+    <Copy SourceFiles="config.json" DestinationFolder="$(OutputPath)\publish" />
+  </Target>
+  <Target Name="ZipOutput" AfterTargets="AfterBuild">
+    <PropertyGroup>
+      <ZipFilePath>$(MSBuildProjectDirectory)\publish.zip</ZipFilePath>
+    </PropertyGroup>
+    <Exec Command="powershell Compress-Archive -Path &quot;$(OutputPath)\publish\*&quot; -DestinationPath &quot;$(ZipFilePath)&quot; -Force" />
+  </Target>
+
 </Project>
