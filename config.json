@@ -6,6 +6,7 @@
   "resourceid": "https://vault.azure.net",
   "secreturl": "",
   "apiversion": "2024-06-11",
-  "token": null
+  "token": null,
+  "function": "" // current, mslearn, new
 }
 
