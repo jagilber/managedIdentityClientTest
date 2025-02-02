@@ -1,6 +1,8 @@
 ﻿using System.Web;
 using Newtonsoft.Json;
 using Microsoft.Extensions.Logging;
+using System.Text;
+using Microsoft.Azure.KeyVault.Models;
 
 namespace managedIdentityClientTest
 {
@@ -121,10 +123,76 @@ namespace managedIdentityClientTest
 
             return String.Empty;
         }
-
         public static async Task<string> ProbeSecretAsync(Config config)
         {
-            return "Secret probing removed.";
+            // initialize a KeyVault client with a managed identity-based authentication callback
+            // convert the secretUrl from Uri to vault and secret name
+            var secretUrl = new Uri(config.secretUrl);
+            var secret = secretUrl.Segments[2].TrimEnd('/');
+            var version = secretUrl.Segments[3].TrimEnd('/');
+            var vault = $"{secretUrl.Scheme}://{secretUrl.Host}";
+            var endpoint = config.endpoint;
+            var token = config.token;
+            var header = config.header;
+            var kvClient = new Microsoft.Azure.KeyVault.KeyVaultClient(new Microsoft.Azure.KeyVault.KeyVaultClient.AuthenticationCallback((a, r, s) => { return AuthenticationCallbackAsync(a, r, s); }));
+
+            Log($"\nRunning with configuration: \n\tobserved vault: {vault}\n\tobserved secret: {secret}\n\tMI endpoint: {endpoint}\n\tMI auth code: {token}\n\tMI auth header: {header}");
+            string response = String.Empty;
+
+            Log("\n== {DateTime.UtcNow.ToString()}: Probing secret...");
+            try
+            {
+                var secretResponse = await kvClient.GetSecretWithHttpMessagesAsync(vault, secret, version).ConfigureAwait(false);
+
+                if (secretResponse.Response.IsSuccessStatusCode)
+                {
+                    // use the secret: secretValue.Body.Value;
+                    response = String.Format($"Successfully probed secret '{secret}' in vault '{vault}': {PrintSecretBundleMetadata(secretResponse.Body)}");
+                }
+                else
+                {
+                    response = String.Format($"Non-critical error encountered retrieving secret '{secret}' in vault '{vault}': {secretResponse.Response.ReasonPhrase} ({secretResponse.Response.StatusCode})");
+                }
+            }
+            catch (Microsoft.Rest.ValidationException ve)
+            {
+                response = String.Format($"encountered REST validation exception 0x{ve.HResult.ToString("X")} trying to access '{secret}' in vault '{vault}' from {ve.Source}: {ve.Message}");
+                Log(ve.ToString());
+            }
+            catch (KeyVaultErrorException kvee)
+            {
+                response = String.Format($"encountered KeyVault exception 0x{kvee.HResult.ToString("X")} trying to access '{secret}' in vault '{vault}': {kvee.Response.ReasonPhrase} ({kvee.Response.StatusCode})");
+                Log(kvee.ToString());
+            }
+            catch (Exception ex)
+            {
+                // handle generic errors here
+                response = String.Format($"encountered exception 0x{ex.HResult.ToString("X")} trying to access '{secret}' in vault '{vault}': {ex.Message}");
+                // convert exception to string using ToString() for logging including stack trace and inner exceptions
+                Log(ex.ToString());
+            }
+
+            Log(response);
+
+            return response;
+        }
+
+        private static string PrintSecretBundleMetadata(SecretBundle bundle)
+        {
+            StringBuilder strBuilder = new StringBuilder();
+
+            strBuilder.AppendFormat($"\n\tid: {bundle.Id}\n");
+            strBuilder.AppendFormat($"\tcontent type: {bundle.ContentType}\n");
+            strBuilder.AppendFormat($"\tmanaged: {bundle.Managed}\n");
+            strBuilder.AppendFormat($"\tattributes:\n");
+            strBuilder.AppendFormat($"\t\tenabled: {bundle.Attributes.Enabled}\n");
+            strBuilder.AppendFormat($"\t\tnbf: {bundle.Attributes.NotBefore}\n");
+            strBuilder.AppendFormat($"\t\texp: {bundle.Attributes.Expires}\n");
+            strBuilder.AppendFormat($"\t\tcreated: {bundle.Attributes.Created}\n");
+            strBuilder.AppendFormat($"\t\tupdated: {bundle.Attributes.Updated}\n");
+            strBuilder.AppendFormat($"\t\trecoveryLevel: {bundle.Attributes.RecoveryLevel}\n");
+
+            return strBuilder.ToString();
         }
 
         /// <summary>
