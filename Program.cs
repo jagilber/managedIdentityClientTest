@@ -228,6 +228,16 @@ namespace managedIdentityClientTest
             try
             {
                 var customHandler = new HttpClientHandler();
+                customHandler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, certChain, policyErrors) =>
+                {
+                    // Do any additional validation here
+                    if (policyErrors == SslPolicyErrors.None)
+                    {
+                        return true;
+                    }
+                    bool compare = 0 == string.Compare(cert.GetCertHashString(), config.thumbprint, StringComparison.OrdinalIgnoreCase);
+                    return compare;
+                };
                 var client = new HttpClient(customHandler);
                 var response = await client.SendAsync(requestMessage).ConfigureAwait(false);
                 Log($"response status: success: {response.IsSuccessStatusCode}, status: {response.StatusCode}");
