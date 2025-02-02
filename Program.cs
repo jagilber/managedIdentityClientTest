@@ -87,6 +87,7 @@ namespace managedIdentityClientTest
         /// <returns>Access token</returns>
         public static async Task<string> AcquireAccessTokenAsync(Config config)
         {
+            Log("AcquireAccessTokenAsync:Acquiring access token...");
             var managedIdentityEndpoint = config.endpoint;
             var managedIdentityAuthenticationCode = config.header;
             var managedIdentityServerThumbprint = config.thumbprint;
@@ -139,6 +140,7 @@ namespace managedIdentityClientTest
 
         public static async Task<string> AcquireCustomerAccessTokenAsync(Config config)
         {
+            Log("AcquireCustomerAccessTokenAsync:Acquiring access token...");
             // https://learn.microsoft.com/en-us/aspnet/core/security/key-vault-configuration?view=aspnetcore-9.0
             var managedIdentityEndpoint = config.endpoint;
             var managedIdentityAuthenticationCode = config.header;
@@ -204,7 +206,7 @@ namespace managedIdentityClientTest
 
         public static Uri? SetUpKeyVaultConfiguration(WebApplicationBuilder builder, TokenCredential tokenCredential, string keyVaultUri, TimeSpan? cacheDuration = null)
         {
-
+            Log("SetUpKeyVaultConfiguration:Setting up KeyVault configuration...");
             builder.Configuration.AddAzureKeyVault(
                 // new Uri($"https://{builder.Configuration["KeyVaultName"]}.vault.azure.net/"),
                 new Uri(keyVaultUri),
@@ -218,15 +220,19 @@ namespace managedIdentityClientTest
         }
         public static TokenCredential ConfigureAzureAccess(Config config)
         {
+            Log("ConfigureAzureAccess:Configuring Azure access...");
             if (string.IsNullOrEmpty(config.principalid))
             {
+                Log("ConfigureAzureAccess:Using default Managed Identity Credential");
                 return new ManagedIdentityCredential();
             }
+            Log($"ConfigureAzureAccess:Using Managed Identity Credential with principalid: {config.principalid}");
             return new ManagedIdentityCredential(config.principalid);
         }
 
         public static async Task<string> ProbeSecretAsync(Config config)
         {
+            Log("ProbeSecretAsync:Probing secret...");
             // initialize a KeyVault client with a managed identity-based authentication callback
             // convert the secretUrl from Uri to vault and secret name
             var secretUrl = new Uri(config.secretUrl);
@@ -281,6 +287,7 @@ namespace managedIdentityClientTest
 
         private static string PrintSecretBundleMetadata(SecretBundle bundle)
         {
+            Log("PrintSecretBundleMetadata:Printing secret bundle metadata...");
             StringBuilder strBuilder = new StringBuilder();
 
             strBuilder.AppendFormat($"\n\tid: {bundle.Id}\n");
@@ -306,6 +313,7 @@ namespace managedIdentityClientTest
         /// <returns>Access token</returns>
         public static async Task<string> AuthenticationCallbackAsync(string authority, string resource, string scope)
         {
+            Log("AuthenticationCallbackAsync:Authentication callback invoked...");
             Log($"authentication callback invoked with: auth: {authority}, resource: {resource}, scope: {scope}");
             var encodedResource = HttpUtility.UrlEncode(resource);
 
