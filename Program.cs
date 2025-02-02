@@ -185,7 +185,8 @@ namespace managedIdentityClientTest
                 // var builder = WebApplication.CreateBuilder(args);
                 var builder = WebApplication.CreateBuilder();
 
-                Uri? uri = SetUpKeyVaultConfiguration(builder, tokenCredential, vault, new TimeSpan(0, 0, 30, 0));
+                //Uri? uri = SetUpKeyVaultConfiguration(builder, tokenCredential, vault, new TimeSpan(0, 0, 30, 0));
+                Uri? uri = SetUpKeyVaultConfigurationNew(builder, tokenCredential, vault, new TimeSpan(0, 0, 30, 0));
                 return uri.ToString();
 
                 // var response = await new HttpClient(handler).SendAsync(requestMessage)
@@ -228,7 +229,7 @@ namespace managedIdentityClientTest
             //https://learn.microsoft.com/en-us/dotnet/api/azure.core.pipeline.bearertokenauthenticationpolicy?view=azure-dotnet
             //https://learn.microsoft.com/en-us/dotnet/api/azure.core.delegatedtokencredential.create?view=azure-dotnet
 
-            Log("SetUpKeyVaultConfiguration:Setting up KeyVault configuration...");
+            Log("SetUpKeyVaultConfigurationNew:Setting up KeyVault configuration...");
             AccessToken accessToken = new AccessToken(config.token, DateTimeOffset.Now.AddMinutes(5));
             TokenCredential prefetchedTokenCredential = DelegatedTokenCredential.Create((_, _) => accessToken);
             SecretClient secretClient = new SecretClient(new Uri(keyVaultUri), tokenCredential);
