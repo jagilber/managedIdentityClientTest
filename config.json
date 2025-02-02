@@ -1,0 +1,11 @@
+{
+  "endpoint": "https://10.0.0.4:2377/metadata/identity/oauth2/token",
+  "header": "eyAidHlwIiA6ICJ...",
+  "thumbprint": "",
+  "clientid": "", 
+  "resourceid": "https://vault.azure.net",
+  "secreturl": "",
+  "apiversion": "2024-06-11",
+  "token": null
+}
+
