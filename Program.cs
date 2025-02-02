@@ -1,9 +1,6 @@
-﻿using System.Net.Security;
-using System.Text;
-using System.Web;
+﻿using System.Web;
 using Newtonsoft.Json;
 using Microsoft.Extensions.Logging;
-using Microsoft.Azure.KeyVault.Models;
 
 namespace managedIdentityClientTest
 {
@@ -63,7 +60,7 @@ namespace managedIdentityClientTest
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"Failed to parse json file: {ex.Message}");
+                        Log($"Failed to parse json file: {ex.Message}");
                     }
                 }
             }
@@ -72,13 +69,11 @@ namespace managedIdentityClientTest
         public static async Task Run(Config config)
         {
             AccessTokenAcquirer.config = config;
-            //# '2020-05-01' # 2448 has 2024-06-11
-            Console.WriteLine($"Acquiring access token using Managed Identity");
-
+            Log("Acquiring access token...");
             config.token = await AcquireAccessTokenAsync(config);
             var result = await ProbeSecretAsync(config);
-            Console.WriteLine($"token: {config.token}");
-            Console.WriteLine($"result: {result}");
+            Log($"token: {config.token}");
+            Log($"result: {result}");
         }
 
         /// <summary>
@@ -94,49 +89,35 @@ namespace managedIdentityClientTest
             var managedIdentityApiVersion = config.apiversion;
             var managedIdentityAuthenticationHeader = "secret";
             var resource = config.resourceId; //"https://management.azure.com/";
-            var clientId = config.clientId;
+            var principalId = config.principalId;
             var requestUri = $"{managedIdentityEndpoint}?api-version={managedIdentityApiVersion}&resource={HttpUtility.UrlEncode(resource)}";
 
-            if (!string.IsNullOrEmpty(clientId))
+            if (!string.IsNullOrEmpty(principalId))
             {
-                // requestUri += $"&client_id={clientId}";
-                requestUri += $"&principalId={clientId}";
+                // requestUri += $"&client_id={principalId}";
+                requestUri += $"&principalId={principalId}";
             }
-            Console.WriteLine($"Requesting token from {requestUri}");
+            Log($"Requesting token from {requestUri}");
             var requestMessage = new HttpRequestMessage(HttpMethod.Get, requestUri);
             requestMessage.Headers.Add(managedIdentityAuthenticationHeader, managedIdentityAuthenticationCode);
 
             var handler = new HttpClientHandler();
-            handler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, certChain, policyErrors) =>
-            {
-                // Do any additional validation here
-                if (policyErrors == SslPolicyErrors.None)
-                {
-                    return true;
-                }
-                bool compare = 0 == string.Compare(cert.GetCertHashString(), managedIdentityServerThumbprint, StringComparison.OrdinalIgnoreCase);
-                return compare;
-            };
-
-            // https://stackoverflow.com/questions/38138952/bypass-invalid-ssl-certificate-in-net-core
-            // handler.ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
-
 
             try
             {
                 var response = await new HttpClient(handler).SendAsync(requestMessage)
                     .ConfigureAwait(false);
 
-                // response.EnsureSuccessStatusCode();
                 var tokenResponseString = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                Log($"Token response: {tokenResponseString}");
                 var tokenResponseObject = JsonConvert.DeserializeObject<ManagedIdentityTokenResponse>(tokenResponseString);
-                Log(LogLevel.Info, tokenResponseString);
+                Log(tokenResponseString);
                 return tokenResponseObject.AccessToken;
             }
             catch (Exception ex)
             {
                 string errorText = String.Format("{0} \n\n{1}", ex.Message, ex.InnerException != null ? ex.InnerException.Message : "Acquire token failed");
-                Console.WriteLine(errorText);
+                Log(errorText);
             }
 
             return String.Empty;
@@ -144,56 +125,7 @@ namespace managedIdentityClientTest
 
         public static async Task<string> ProbeSecretAsync(Config config)
         {
-            // initialize a KeyVault client with a managed identity-based authentication callback
-            // convert the secretUrl from Uri to vault and secret name
-            var secretUrl = new Uri(config.secretUrl);
-            var secret = secretUrl.Segments[2].TrimEnd('/');
-            var version = secretUrl.Segments[3].TrimEnd('/');
-            var vault = $"{secretUrl.Scheme}://{secretUrl.Host}";
-            var endpoint = config.endpoint;
-            var token = config.token;
-            var header = config.header;
-            var kvClient = new Microsoft.Azure.KeyVault.KeyVaultClient(new Microsoft.Azure.KeyVault.KeyVaultClient.AuthenticationCallback((a, r, s) => { return AuthenticationCallbackAsync(a, r, s); }));
-
-            Log(LogLevel.Info, $"\nRunning with configuration: \n\tobserved vault: {vault}\n\tobserved secret: {secret}\n\tMI endpoint: {endpoint}\n\tMI auth code: {token}\n\tMI auth header: {header}");
-            string response = String.Empty;
-
-            Log(LogLevel.Info, "\n== {DateTime.UtcNow.ToString()}: Probing secret...");
-            try
-            {
-                var secretResponse = await kvClient.GetSecretWithHttpMessagesAsync(vault, secret, version).ConfigureAwait(false);
-
-                if (secretResponse.Response.IsSuccessStatusCode)
-                {
-                    // use the secret: secretValue.Body.Value;
-                    response = String.Format($"Successfully probed secret '{secret}' in vault '{vault}': {PrintSecretBundleMetadata(secretResponse.Body)}");
-                }
-                else
-                {
-                    response = String.Format($"Non-critical error encountered retrieving secret '{secret}' in vault '{vault}': {secretResponse.Response.ReasonPhrase} ({secretResponse.Response.StatusCode})");
-                }
-            }
-            catch (Microsoft.Rest.ValidationException ve)
-            {
-                response = String.Format($"encountered REST validation exception 0x{ve.HResult.ToString("X")} trying to access '{secret}' in vault '{vault}' from {ve.Source}: {ve.Message}");
-                Log(LogLevel.Info, ve.ToString());
-            }
-            catch (KeyVaultErrorException kvee)
-            {
-                response = String.Format($"encountered KeyVault exception 0x{kvee.HResult.ToString("X")} trying to access '{secret}' in vault '{vault}': {kvee.Response.ReasonPhrase} ({kvee.Response.StatusCode})");
-                Log(LogLevel.Info, kvee.ToString());
-            }
-            catch (Exception ex)
-            {
-                // handle generic errors here
-                response = String.Format($"encountered exception 0x{ex.HResult.ToString("X")} trying to access '{secret}' in vault '{vault}': {ex.Message}");
-                // convert exception to string using ToString() for logging including stack trace and inner exceptions
-                Log(LogLevel.Info, ex.ToString());
-            }
-
-            Log(LogLevel.Info, response);
-
-            return response;
+            return "Secret probing removed.";
         }
 
         /// <summary>
@@ -205,57 +137,22 @@ namespace managedIdentityClientTest
         /// <returns>Access token</returns>
         public static async Task<string> AuthenticationCallbackAsync(string authority, string resource, string scope)
         {
-            Log(LogLevel.Verbose, $"authentication callback invoked with: auth: {authority}, resource: {resource}, scope: {scope}");
+            Log($"authentication callback invoked with: auth: {authority}, resource: {resource}, scope: {scope}");
             var encodedResource = HttpUtility.UrlEncode(resource);
 
-            // This sample does not illustrate the caching of the access token, which the user application is expected to do.
-            // For a given service, the caching key should be the (encoded) resource uri. The token should be cached for a period
-            // of time at most equal to its remaining validity. The 'expires_on' field of the token response object represents
-            // the number of seconds from Unix time when the token will expire. You may cache the token if it will be valid for at
-            // least another short interval (1-10s). If its expiration will occur shortly, don't cache but still return it to the 
-            // caller. The MI endpoint will not return an expired token.
-            // Sample caching code:
-            //
-            // ManagedIdentityTokenResponse tokenResponse;
-            // if (responseCache.TryGetCachedItem(encodedResource, out tokenResponse))
-            // {
-            //     Log(LogLevel.Verbose, $"cache hit for key '{encodedResource}'");
-            //
-            //     return tokenResponse.AccessToken;
-            // }
-            //
-            // Log(LogLevel.Verbose, $"cache miss for key '{encodedResource}'");
-            //
-            // where the response cache is left as an exercise for the reader. MemoryCache is a good option, albeit not yet available on .net core.
-
-
-
             var requestUri = $"{config.endpoint}?api-version={config.apiversion}&resource={encodedResource}";
-            Log(LogLevel.Verbose, $"request uri: {requestUri}");
+            Log($"request uri: {requestUri}");
 
             var requestMessage = new HttpRequestMessage(HttpMethod.Get, requestUri);
             requestMessage.Headers.Add("secret", $"{config.header}");
-            Log(LogLevel.Verbose, $"added header 'secret':'{config.header}'");
+            Log($"added header 'secret':'{config.header}'");
 
             try
             {
-
-                // var cert = GetCert(config.thumbprint);
                 var customHandler = new HttpClientHandler();
-                // customHandler.ClientCertificates.Add(cert);
-                customHandler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, certChain, policyErrors) =>
-                {
-                    // Do any additional validation here
-                    if (policyErrors == SslPolicyErrors.None)
-                    {
-                        return true;
-                    }
-                    bool compare = 0 == string.Compare(cert.GetCertHashString(), config.thumbprint, StringComparison.OrdinalIgnoreCase);
-                    return compare;
-                };
                 var client = new HttpClient(customHandler);
                 var response = await client.SendAsync(requestMessage).ConfigureAwait(false);
-                Log(LogLevel.Verbose, $"response status: success: {response.IsSuccessStatusCode}, status: {response.StatusCode}");
+                Log($"response status: success: {response.IsSuccessStatusCode}, status: {response.StatusCode}");
 
                 response.EnsureSuccessStatusCode();
 
@@ -263,44 +160,22 @@ namespace managedIdentityClientTest
                     .ConfigureAwait(false);
 
                 var tokenResponse = JsonConvert.DeserializeObject<ManagedIdentityTokenResponse>(tokenResponseString);
-                Log(LogLevel.Verbose, "deserialized token response; returning access code..");
-
-                // Sample caching code (continuation):
-                // var expiration = DateTimeOffset.FromUnixTimeSeconds(Int32.Parse(tokenResponse.ExpiresOn));
-                // if (expiration > DateTimeOffset.UtcNow.AddSeconds(5.0))
-                //    responseCache.AddOrUpdate(encodedResource, tokenResponse, expiration);
+                Log("deserialized token response; returning access code..");
 
                 return tokenResponse.AccessToken;
             }
             catch (HttpRequestException hre)
             {
-                Log(LogLevel.Info, $"HTTP request exception in authentication callback: {hre.Message}");
-                Log(LogLevel.Info, $"exception details: {hre.ToString()}");
+                Log($"HTTP request exception in authentication callback: {hre.Message}");
+                Log($"exception details: {hre.ToString()}");
                 throw;
             }
             catch (Exception ex)
             {
-                Log(LogLevel.Info, $"exception in authentication callback: {ex.Message}");
-                Log(LogLevel.Info, $"exception details: {ex.ToString()}");
+                Log($"exception in authentication callback: {ex.Message}");
+                Log($"exception details: {ex.ToString()}");
                 throw;
             }
-        }
-        private static string PrintSecretBundleMetadata(SecretBundle bundle)
-        {
-            StringBuilder strBuilder = new StringBuilder();
-
-            strBuilder.AppendFormat($"\n\tid: {bundle.Id}\n");
-            strBuilder.AppendFormat($"\tcontent type: {bundle.ContentType}\n");
-            strBuilder.AppendFormat($"\tmanaged: {bundle.Managed}\n");
-            strBuilder.AppendFormat($"\tattributes:\n");
-            strBuilder.AppendFormat($"\t\tenabled: {bundle.Attributes.Enabled}\n");
-            strBuilder.AppendFormat($"\t\tnbf: {bundle.Attributes.NotBefore}\n");
-            strBuilder.AppendFormat($"\t\texp: {bundle.Attributes.Expires}\n");
-            strBuilder.AppendFormat($"\t\tcreated: {bundle.Attributes.Created}\n");
-            strBuilder.AppendFormat($"\t\tupdated: {bundle.Attributes.Updated}\n");
-            strBuilder.AppendFormat($"\t\trecoveryLevel: {bundle.Attributes.RecoveryLevel}\n");
-
-            return strBuilder.ToString();
         }
 
         private enum LogLevel
@@ -309,12 +184,9 @@ namespace managedIdentityClientTest
             Verbose
         };
 
-        private static void Log(LogLevel level, string message)
+        private static void Log(string message = "", LogLevel level = LogLevel.Info)
         {
-            //   if (level != LogLevel.Verbose)
-            //   {
-            Console.WriteLine(message);
-            //   }
+            Console.WriteLine($"[{DateTime.Now}][{level}]: {message}");
         }
     } // class AccessTokenAcquirer
 
@@ -324,7 +196,7 @@ namespace managedIdentityClientTest
         public string endpoint { get; set; }
         public string header { get; set; }
         public string thumbprint { get; set; }
-        public string clientId { get; set; }
+        public string principalId { get; set; }
         public string resourceId { get; set; }
         public string secretUrl { get; set; }
         public string apiversion { get; set; }
