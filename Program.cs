@@ -89,12 +89,11 @@ namespace managedIdentityClientTest
             var managedIdentityApiVersion = config.apiversion;
             var managedIdentityAuthenticationHeader = "secret";
             var resource = config.resourceId; //"https://management.azure.com/";
-            var principalId = config.principalId;
+            var principalId = config.principalid;
             var requestUri = $"{managedIdentityEndpoint}?api-version={managedIdentityApiVersion}&resource={HttpUtility.UrlEncode(resource)}";
 
             if (!string.IsNullOrEmpty(principalId))
             {
-                // requestUri += $"&client_id={principalId}";
                 requestUri += $"&principalId={principalId}";
             }
             Log($"Requesting token from {requestUri}");
@@ -196,7 +195,7 @@ namespace managedIdentityClientTest
         public string endpoint { get; set; }
         public string header { get; set; }
         public string thumbprint { get; set; }
-        public string principalId { get; set; }
+        public string principalid { get; set; }
         public string resourceId { get; set; }
         public string secretUrl { get; set; }
         public string apiversion { get; set; }
