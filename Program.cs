@@ -6,7 +6,6 @@ using System.Net.Security;
 using System.Web;
 using System.Text;
 using Azure.Extensions.AspNetCore.Configuration.Secrets;
-using Azure.Security.KeyVault.Secrets;
 
 namespace managedIdentityClientTest
 {
@@ -78,9 +77,17 @@ namespace managedIdentityClientTest
             Log("Acquiring access token...");
             //config.token = await AcquireAccessTokenAsync(config);
             config.token = await AcquireCustomerAccessTokenAsync(config);
-            var result = await ProbeSecretAsync(config);
             Log($"token: {config.token}");
-            Log($"result: {result}");
+            if (!string.IsNullOrEmpty(config.token))
+            {
+                Log("Token acquired. Probing secret...");
+                var result = await ProbeSecretAsync(config);
+                Log($"result: {result}");
+            }
+            else
+            {
+                Log("Failed to acquire token.");
+            }
         }
 
         /// <summary>
@@ -180,23 +187,33 @@ namespace managedIdentityClientTest
 
             try
             {
+                DateTimeOffset dto = DateTimeOffset.Now.AddMinutes(5);
 
-                TokenCredential tokenCredential = ConfigureAzureAccess(config);
+                var response = await new HttpClient(handler).SendAsync(requestMessage)
+                    .ConfigureAwait(false);
+
+                if (string.IsNullOrEmpty(config.token))
+                {
+                    var tokenResponseString = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    Log($"Token response: {tokenResponseString}");
+                    ManagedIdentityTokenResponse? tokenResponseObject = JsonConvert.DeserializeObject<ManagedIdentityTokenResponse>(tokenResponseString);
+                    Log(tokenResponseString);
+                    // return tokenResponseObject.AccessToken;
+                    config.token = tokenResponseObject.AccessToken;
+                    dto = tokenResponseObject.ExpiresOn != null ? DateTimeOffset.FromUnixTimeSeconds(long.Parse(tokenResponseObject.ExpiresOn)) : dto;
+                    Log($"Token expires at: {dto.UtcDateTime}");
+                }
+
+                // TokenCredential tokenCredential = ConfigureAzureAccess(config);
+                AccessToken accessToken = new AccessToken(config.token, dto);
+                TokenCredential tokenCredential = DelegatedTokenCredential.Create((_, _) => accessToken);
+
                 // var builder = WebApplication.CreateBuilder(args);
                 var builder = WebApplication.CreateBuilder();
 
-                //Uri? uri = SetUpKeyVaultConfiguration(builder, tokenCredential, vault, new TimeSpan(0, 0, 30, 0));
-                Uri? uri = SetUpKeyVaultConfigurationNew(builder, tokenCredential, vault, new TimeSpan(0, 0, 30, 0));
+                Uri? uri = SetUpKeyVaultConfiguration(builder, tokenCredential, vault, (dto - DateTime.Now) );
                 return uri.ToString();
 
-                // var response = await new HttpClient(handler).SendAsync(requestMessage)
-                //     .ConfigureAwait(false);
-
-                // var tokenResponseString = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                // Log($"Token response: {tokenResponseString}");
-                // var tokenResponseObject = JsonConvert.DeserializeObject<ManagedIdentityTokenResponse>(tokenResponseString);
-                // Log(tokenResponseString);
-                // return tokenResponseObject.AccessToken;
             }
             catch (Exception ex)
             {
@@ -207,7 +224,7 @@ namespace managedIdentityClientTest
             return String.Empty;
         }
 
-        public static Uri? SetUpKeyVaultConfiguration(WebApplicationBuilder builder, TokenCredential tokenCredential, string keyVaultUri, TimeSpan? cacheDuration = null)
+        public static Uri? SetUpKeyVaultConfiguration(WebApplicationBuilder builder, TokenCredential tokenCredential, string keyVaultUri, TimeSpan? reloadInterval = null)
         {
             //https://learn.microsoft.com/en-us/dotnet/api/microsoft.extensions.configuration.azurekeyvaultconfigurationextensions.addazurekeyvault?view=azure-dotnet#microsoft-extensions-configuration-azurekeyvaultconfigurationextensions-addazurekeyvault(microsoft-extensions-configuration-iconfigurationbuilder-system-uri-azure-core-tokencredential)
             Log("SetUpKeyVaultConfiguration:Setting up KeyVault configuration...");
@@ -218,30 +235,9 @@ namespace managedIdentityClientTest
                     new AzureKeyVaultConfigurationOptions
                     {
                         Manager = new KeyVaultSecretManager(),
-                        ReloadInterval = cacheDuration ?? TimeSpan.FromMinutes(5)
+                        ReloadInterval = reloadInterval ?? TimeSpan.FromMinutes(1)
                     });
-            return null;
-        }
-
-        public static Uri? SetUpKeyVaultConfigurationNew(WebApplicationBuilder builder, TokenCredential tokenCredential, string keyVaultUri, TimeSpan? cacheDuration = null)
-        {
-            //https://learn.microsoft.com/en-us/dotnet/api/microsoft.extensions.configuration.azurekeyvaultconfigurationextensions.addazurekeyvault?view=azure-dotnet#microsoft-extensions-configuration-azurekeyvaultconfigurationextensions-addazurekeyvault(microsoft-extensions-configuration-iconfigurationbuilder-azure-security-keyvault-secrets-secretclient-azure-extensions-aspnetcore-configuration-secrets-azurekeyvaultconfigurationoptions)
-            //https://learn.microsoft.com/en-us/dotnet/api/azure.core.pipeline.bearertokenauthenticationpolicy?view=azure-dotnet
-            //https://learn.microsoft.com/en-us/dotnet/api/azure.core.delegatedtokencredential.create?view=azure-dotnet
-
-            Log("SetUpKeyVaultConfigurationNew:Setting up KeyVault configuration...");
-            AccessToken accessToken = new AccessToken(config.token, DateTimeOffset.Now.AddMinutes(5));
-            TokenCredential prefetchedTokenCredential = DelegatedTokenCredential.Create((_, _) => accessToken);
-            SecretClient secretClient = new SecretClient(new Uri(keyVaultUri), tokenCredential);
-            builder.Configuration.AddAzureKeyVault(
-                new Uri(keyVaultUri),
-                prefetchedTokenCredential,
-                    new AzureKeyVaultConfigurationOptions
-                    {
-                        Manager = new KeyVaultSecretManager(),
-                        ReloadInterval = cacheDuration ?? TimeSpan.FromMinutes(5)
-                    });
-            return null;
+            return new Uri(keyVaultUri);
         }
 
         public static TokenCredential ConfigureAzureAccess(Config config)
