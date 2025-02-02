@@ -3,6 +3,7 @@ using Newtonsoft.Json;
 using Microsoft.Extensions.Logging;
 using System.Text;
 using Microsoft.Azure.KeyVault.Models;
+using System.Net.Security;
 
 namespace managedIdentityClientTest
 {
@@ -103,6 +104,16 @@ namespace managedIdentityClientTest
             requestMessage.Headers.Add(managedIdentityAuthenticationHeader, managedIdentityAuthenticationCode);
 
             var handler = new HttpClientHandler();
+            handler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, certChain, policyErrors) =>
+            {
+                // Do any additional validation here
+                if (policyErrors == SslPolicyErrors.None)
+                {
+                    return true;
+                }
+                bool compare = 0 == string.Compare(cert.GetCertHashString(), managedIdentityServerThumbprint, StringComparison.OrdinalIgnoreCase);
+                return compare;
+            };
 
             try
             {
