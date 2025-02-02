@@ -5,6 +5,8 @@ using Newtonsoft.Json;
 using System.Net.Security;
 using System.Web;
 using System.Text;
+using Azure.Extensions.AspNetCore.Configuration.Secrets;
+using Azure.Security.KeyVault.Secrets;
 
 namespace managedIdentityClientTest
 {
@@ -206,18 +208,41 @@ namespace managedIdentityClientTest
 
         public static Uri? SetUpKeyVaultConfiguration(WebApplicationBuilder builder, TokenCredential tokenCredential, string keyVaultUri, TimeSpan? cacheDuration = null)
         {
+            //https://learn.microsoft.com/en-us/dotnet/api/microsoft.extensions.configuration.azurekeyvaultconfigurationextensions.addazurekeyvault?view=azure-dotnet#microsoft-extensions-configuration-azurekeyvaultconfigurationextensions-addazurekeyvault(microsoft-extensions-configuration-iconfigurationbuilder-system-uri-azure-core-tokencredential)
             Log("SetUpKeyVaultConfiguration:Setting up KeyVault configuration...");
             builder.Configuration.AddAzureKeyVault(
                 // new Uri($"https://{builder.Configuration["KeyVaultName"]}.vault.azure.net/"),
                 new Uri(keyVaultUri),
-                tokenCredential);
-                    // new ClientCertificateCredential(
-                    //     builder.Configuration["AzureADDirectoryId"],
-                    //     builder.Configuration["AzureADApplicationId"],
-                    //     x509Certificate));
-                    // }
+                tokenCredential,
+                    new AzureKeyVaultConfigurationOptions
+                    {
+                        Manager = new KeyVaultSecretManager(),
+                        ReloadInterval = cacheDuration ?? TimeSpan.FromMinutes(5)
+                    });
             return null;
         }
+
+        public static Uri? SetUpKeyVaultConfigurationNew(WebApplicationBuilder builder, TokenCredential tokenCredential, string keyVaultUri, TimeSpan? cacheDuration = null)
+        {
+            //https://learn.microsoft.com/en-us/dotnet/api/microsoft.extensions.configuration.azurekeyvaultconfigurationextensions.addazurekeyvault?view=azure-dotnet#microsoft-extensions-configuration-azurekeyvaultconfigurationextensions-addazurekeyvault(microsoft-extensions-configuration-iconfigurationbuilder-azure-security-keyvault-secrets-secretclient-azure-extensions-aspnetcore-configuration-secrets-azurekeyvaultconfigurationoptions)
+            //https://learn.microsoft.com/en-us/dotnet/api/azure.core.pipeline.bearertokenauthenticationpolicy?view=azure-dotnet
+            //https://learn.microsoft.com/en-us/dotnet/api/azure.core.delegatedtokencredential.create?view=azure-dotnet
+
+            Log("SetUpKeyVaultConfiguration:Setting up KeyVault configuration...");
+            AccessToken accessToken = new AccessToken(config.token, DateTimeOffset.Now.AddMinutes(5));
+            TokenCredential prefetchedTokenCredential = DelegatedTokenCredential.Create((_, _) => accessToken);
+            SecretClient secretClient = new SecretClient(new Uri(keyVaultUri), tokenCredential);
+            builder.Configuration.AddAzureKeyVault(
+                new Uri(keyVaultUri),
+                prefetchedTokenCredential,
+                    new AzureKeyVaultConfigurationOptions
+                    {
+                        Manager = new KeyVaultSecretManager(),
+                        ReloadInterval = cacheDuration ?? TimeSpan.FromMinutes(5)
+                    });
+            return null;
+        }
+
         public static TokenCredential ConfigureAzureAccess(Config config)
         {
             Log("ConfigureAzureAccess:Configuring Azure access...");
