@@ -4,10 +4,6 @@ using System.Web;
 using Newtonsoft.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Azure.KeyVault.Models;
-using System.Security.Cryptography;
-using System.Security.Permissions;
-using System.IO;
-using System.Security.Cryptography.X509Certificates;
 
 namespace managedIdentityClientTest
 {
@@ -103,7 +99,8 @@ namespace managedIdentityClientTest
 
             if (!string.IsNullOrEmpty(clientId))
             {
-                requestUri += $"&client_id={clientId}";
+                // requestUri += $"&client_id={clientId}";
+                requestUri += $"&principalId={clientId}";
             }
             Console.WriteLine($"Requesting token from {requestUri}");
             var requestMessage = new HttpRequestMessage(HttpMethod.Get, requestUri);
@@ -288,48 +285,6 @@ namespace managedIdentityClientTest
                 throw;
             }
         }
-
-        public static X509Certificate2 GetCert(string thumbprint)
-        {
-            X509Store store = new X509Store("MY", StoreLocation.LocalMachine);
-            store.Open(OpenFlags.ReadOnly | OpenFlags.OpenExistingOnly);
-
-            X509Certificate2Collection collection = (X509Certificate2Collection)store.Certificates;
-            X509Certificate2Collection fcollection = (X509Certificate2Collection)collection.Find(X509FindType.FindByTimeValid, DateTime.Now, false);
-
-            foreach (X509Certificate2 x509 in collection)
-            {
-                try
-                {
-
-                    byte[] rawdata = x509.RawData;
-                    Console.WriteLine("Content Type: {0}{1}", X509Certificate2.GetCertContentType(rawdata), Environment.NewLine);
-                    Console.WriteLine("Friendly Name: {0}{1}", x509.FriendlyName, Environment.NewLine);
-                    Console.WriteLine("Certificate Verified?: {0}{1}", x509.Verify(), Environment.NewLine);
-                    Console.WriteLine("Simple Name: {0}{1}", x509.GetNameInfo(X509NameType.SimpleName, true), Environment.NewLine);
-                    Console.WriteLine("Signature Algorithm: {0}{1}", x509.SignatureAlgorithm.FriendlyName, Environment.NewLine);
-                    Console.WriteLine("Public Key: {0}{1}", x509.PublicKey.Key.ToXmlString(false), Environment.NewLine);
-                    Console.WriteLine("Certificate Archived?: {0}{1}", x509.Archived, Environment.NewLine);
-                    Console.WriteLine("Length of Raw Data: {0}{1}", x509.RawData.Length, Environment.NewLine);
-                    if (string.Compare(x509.Thumbprint, thumbprint, true) == 0)
-                    {
-                        store.Close();
-                        return x509;
-                    }
-
-                    //    X509Certificate2UI.DisplayCertificate(x509);
-                    x509.Reset();
-                }
-                catch (CryptographicException)
-                {
-                    Console.WriteLine("Information could not be written out for this certificate.");
-                    return null;
-                }
-            }
-            store.Close();
-            return null;
-        }
-
         private static string PrintSecretBundleMetadata(SecretBundle bundle)
         {
             StringBuilder strBuilder = new StringBuilder();
