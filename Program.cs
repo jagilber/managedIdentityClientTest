@@ -1,9 +1,10 @@
-﻿using System.Web;
-using Newtonsoft.Json;
-using Microsoft.Extensions.Logging;
-using System.Text;
+﻿using Azure.Core;
+using Azure.Identity;
 using Microsoft.Azure.KeyVault.Models;
+using Newtonsoft.Json;
 using System.Net.Security;
+using System.Web;
+using System.Text;
 
 namespace managedIdentityClientTest
 {
@@ -73,7 +74,8 @@ namespace managedIdentityClientTest
         {
             AccessTokenAcquirer.config = config;
             Log("Acquiring access token...");
-            config.token = await AcquireAccessTokenAsync(config);
+            //config.token = await AcquireAccessTokenAsync(config);
+            config.token = await AcquireCustomerAccessTokenAsync(config);
             var result = await ProbeSecretAsync(config);
             Log($"token: {config.token}");
             Log($"result: {result}");
@@ -134,6 +136,95 @@ namespace managedIdentityClientTest
 
             return String.Empty;
         }
+
+        public static async Task<string> AcquireCustomerAccessTokenAsync(Config config)
+        {
+            // https://learn.microsoft.com/en-us/aspnet/core/security/key-vault-configuration?view=aspnetcore-9.0
+            var managedIdentityEndpoint = config.endpoint;
+            var managedIdentityAuthenticationCode = config.header;
+            var managedIdentityServerThumbprint = config.thumbprint;
+            // Latest api version, 2019-07-01-preview is still supported.
+            var managedIdentityApiVersion = config.apiversion;
+            var managedIdentityAuthenticationHeader = "secret";
+            var resource = config.resourceId; //"https://management.azure.com/";
+            var principalId = config.principalid;
+            var requestUri = $"{managedIdentityEndpoint}?api-version={managedIdentityApiVersion}&resource={HttpUtility.UrlEncode(resource)}";
+            var secretUrl = new Uri(config.secretUrl);
+            var secret = secretUrl.Segments[2].TrimEnd('/');
+            var version = secretUrl.Segments[3].TrimEnd('/');
+            var vault = $"{secretUrl.Scheme}://{secretUrl.Host}";
+
+            if (!string.IsNullOrEmpty(principalId))
+            {
+                requestUri += $"&principalId={principalId}";
+            }
+            Log($"Requesting token from {requestUri}");
+            var requestMessage = new HttpRequestMessage(HttpMethod.Get, requestUri);
+            requestMessage.Headers.Add(managedIdentityAuthenticationHeader, managedIdentityAuthenticationCode);
+
+            var handler = new HttpClientHandler();
+            handler.ServerCertificateCustomValidationCallback = (httpRequestMessage, cert, certChain, policyErrors) =>
+            {
+                // Do any additional validation here
+                if (policyErrors == SslPolicyErrors.None)
+                {
+                    return true;
+                }
+                bool compare = 0 == string.Compare(cert.GetCertHashString(), managedIdentityServerThumbprint, StringComparison.OrdinalIgnoreCase);
+                return compare;
+            };
+
+            try
+            {
+
+                TokenCredential tokenCredential = ConfigureAzureAccess(config);
+                // var builder = WebApplication.CreateBuilder(args);
+                var builder = WebApplication.CreateBuilder();
+
+                Uri? uri = SetUpKeyVaultConfiguration(builder, tokenCredential, vault, new TimeSpan(0, 0, 30, 0));
+                return uri.ToString();
+
+                // var response = await new HttpClient(handler).SendAsync(requestMessage)
+                //     .ConfigureAwait(false);
+
+                // var tokenResponseString = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                // Log($"Token response: {tokenResponseString}");
+                // var tokenResponseObject = JsonConvert.DeserializeObject<ManagedIdentityTokenResponse>(tokenResponseString);
+                // Log(tokenResponseString);
+                // return tokenResponseObject.AccessToken;
+            }
+            catch (Exception ex)
+            {
+                string errorText = String.Format("{0} \n\n{1}", ex.Message, ex.InnerException != null ? ex.InnerException.Message : "Acquire token failed");
+                Log(errorText);
+            }
+
+            return String.Empty;
+        }
+
+        public static Uri? SetUpKeyVaultConfiguration(WebApplicationBuilder builder, TokenCredential tokenCredential, string keyVaultUri, TimeSpan? cacheDuration = null)
+        {
+
+            builder.Configuration.AddAzureKeyVault(
+                // new Uri($"https://{builder.Configuration["KeyVaultName"]}.vault.azure.net/"),
+                new Uri(keyVaultUri),
+                tokenCredential);
+                    // new ClientCertificateCredential(
+                    //     builder.Configuration["AzureADDirectoryId"],
+                    //     builder.Configuration["AzureADApplicationId"],
+                    //     x509Certificate));
+                    // }
+            return null;
+        }
+        public static TokenCredential ConfigureAzureAccess(Config config)
+        {
+            if (string.IsNullOrEmpty(config.principalid))
+            {
+                return new ManagedIdentityCredential();
+            }
+            return new ManagedIdentityCredential(config.principalid);
+        }
+
         public static async Task<string> ProbeSecretAsync(Config config)
         {
             // initialize a KeyVault client with a managed identity-based authentication callback
