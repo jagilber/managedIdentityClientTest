@@ -4,7 +4,8 @@
 
 1. create a service fabric cluster with managed identity token service enabled
 1. create a service fabric application with a service that uses the managed identity token service
-1. create a service principal with the necessary permissions to access the managed identity token service
+1. create a service principal with the necessary permissions to access key vault
+    secret get, list
 1. deploy the application to the cluster via ARM template
 1. rdp into node and run process explorer to view environment variables of published application / service
 
@@ -39,6 +40,56 @@
   "token": null,
   "function": "" // current, mslearn, new
 }
+```
+
+### example applicationManifest.xml with managedIdentity and principalId
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<ApplicationManifest xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ApplicationTypeName="VotingType" ApplicationTypeVersion="1.0.2" xmlns="http://schemas.microsoft.com/2011/01/fabric">
+  <Parameters>
+    <Parameter Name="VotingData_MinReplicaSetSize" DefaultValue="3" />
+    <Parameter Name="VotingData_PartitionCount" DefaultValue="1" />
+    <Parameter Name="VotingData_TargetReplicaSetSize" DefaultValue="3" />
+    <Parameter Name="VotingWeb_InstanceCount" DefaultValue="-1" />
+  </Parameters>
+\  <ServiceManifestImport>
+    <ServiceManifestRef ServiceManifestName="VotingDataPkg" ServiceManifestVersion="1.0.2" />
+    <ConfigOverrides />
+  </ServiceManifestImport>
+  <ServiceManifestImport>
+    <ServiceManifestRef ServiceManifestName="VotingWebPkg" ServiceManifestVersion="1.0.2" />
+    <ConfigOverrides />
+    <Policies>
+      <IdentityBindingPolicy ServiceIdentityRef="WebAdmin" ApplicationIdentityRef="AdminUser" />
+    </Policies>
+  </ServiceManifestImport>
+  <DefaultServices>
+    <Service Name="VotingData">
+      <StatefulService ServiceTypeName="VotingDataType" TargetReplicaSetSize="[VotingData_TargetReplicaSetSize]" MinReplicaSetSize="[VotingData_MinReplicaSetSize]">
+        <UniformInt64Partition PartitionCount="[VotingData_PartitionCount]" LowKey="0" HighKey="25" />
+      </StatefulService>
+    </Service>
+    <Service Name="VotingWeb" ServicePackageActivationMode="ExclusiveProcess">
+      <StatelessService ServiceTypeName="VotingWebType" InstanceCount="[VotingWeb_InstanceCount]">
+        <SingletonPartition />
+      </StatelessService>
+    </Service>
+  </DefaultServices>
+  <Principals>
+    <Users>
+      <User Name="SetupLocalSystem">
+        <MemberOf>
+          <SystemGroup Name="Administrators" />
+        </MemberOf>
+      </User>
+    </Users>
+    <ManagedIdentities>
+      <!-- add PrincipalId (objectid) attribute here -->
+      <ManagedIdentity Name="AdminUser" PrincipalId="ac78a5b3-9c8e-42a9-befe-8ba1b52ec286" />
+    </ManagedIdentities>
+  </Principals>
+</ApplicationManifest>
 ```
 
 ### reference
